@@ -54,3 +54,7 @@ scripts/install-gsd-meta-supervisor-service.sh -t codex-new:codex -r /path/to/pr
 ## Docs
 
 - [operations.md](docs/operations.md)
+
+## License
+
+MIT
