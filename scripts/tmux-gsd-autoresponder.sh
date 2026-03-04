@@ -267,7 +267,7 @@ extract_composer_text() {
 is_placeholder_composer_text() {
   local text="$1"
   case "$text" in
-    ""|"Implement {feature}"|"Ask anything"|"Type a message"|"Summarize recent commits"|"Find and fix a bug in @filename"|"Use /skills to list available skills"|"Run /review on my current changes")
+    ""|"Implement {feature}"|"Ask anything"|"Type a message"|"Summarize recent commits"|"Find and fix a bug in @filename"|"Use /skills to list available skills"|"Run /review on my current changes"|"Explain this codebase")
       return 0
       ;;
     *)
