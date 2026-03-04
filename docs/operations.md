@@ -17,8 +17,27 @@ All runtime artifacts live in the target project:
 ## Start (tmux only)
 
 ```bash
+# default: Codex UI pair (recommended for visible Codex sessions)
+scripts/codex-duet-link.sh -r /path/to/project start
+# alternate executor loop (no Codex TUI)
+scripts/codex-duet-link.sh -r /path/to/project start --agent
+scripts/codex-duet-link.sh -r /path/to/project start --fresh
 scripts/start-gsd-supervisor-daemon.sh -t codex-new:codex -r /path/to/project
 scripts/start-gsd-meta-supervisor.sh -t codex-new:codex -r /path/to/project
+```
+
+Attach the two Codex roles:
+
+```bash
+tmux attach -t codex-new-developer
+tmux attach -t codex-new-driver
+```
+
+Clean known legacy sessions for this project if you only want the two pair roles:
+
+```bash
+tmux kill-session -t codex-$(basename /path/to/project)-controller 2>/dev/null || true
+tmux kill-session -t codex-$(basename /path/to/project)-worker 2>/dev/null || true
 ```
 
 ## Start (systemd user services)
