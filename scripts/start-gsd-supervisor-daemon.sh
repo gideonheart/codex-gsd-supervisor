@@ -14,6 +14,8 @@ Options:
   -i WATCHER_INTERVAL  watcher poll interval in seconds (default: 2)
   -c CHECK_INTERVAL    daemon health-check interval in seconds (default: 5)
   -q QUEUE_FILE        queue file path (default: .planning/supervisor/queue.txt)
+  -v                   enable auto-verification enqueue after $gsd-execute-phase
+  -k VERIFY_CMD         verification command to enqueue (default: $gsd-verify-work)
   -a                   attach to daemon session after start
   -h                   show help
 EOF
@@ -28,8 +30,10 @@ watcher_interval="2"
 check_interval="5"
 queue_file=""
 attach_now="false"
+auto_verify="false"
+verify_command=""
 
-while getopts ":t:r:s:n:m:i:c:q:ah" opt; do
+while getopts ":t:r:s:n:m:i:c:q:vk:ah" opt; do
   case "$opt" in
     t) target="$OPTARG" ;;
     r) project_root="$OPTARG" ;;
@@ -39,6 +43,8 @@ while getopts ":t:r:s:n:m:i:c:q:ah" opt; do
     i) watcher_interval="$OPTARG" ;;
     c) check_interval="$OPTARG" ;;
     q) queue_file="$OPTARG" ;;
+    v) auto_verify="true" ;;
+    k) verify_command="$OPTARG" ;;
     a) attach_now="true" ;;
     h)
       usage
@@ -94,10 +100,16 @@ daemon_cmd=(
   -c "$check_interval"
   -q "$queue_file"
 )
+if [[ "$auto_verify" == "true" ]]; then
+  daemon_cmd+=(-v)
+  if [[ -n "$verify_command" ]]; then
+    daemon_cmd+=(-k "$verify_command")
+  fi
+fi
 daemon_cmd_escaped="$(printf '%q ' "${daemon_cmd[@]}")"
 
-if tmux has-session -t "$daemon_session" 2>/dev/null; then
-  tmux kill-session -t "$daemon_session"
+if tmux has-session -t "=$daemon_session" 2>/dev/null; then
+  tmux kill-session -t "=$daemon_session"
 fi
 
 tmux new-session \

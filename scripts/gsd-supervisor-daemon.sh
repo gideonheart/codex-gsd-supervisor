@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/gsd-supervisor-daemon.sh -t TARGET [-r PROJECT_ROOT] [-n WATCHER_SESSION] [-m MODE] [-i WATCHER_INTERVAL] [-c CHECK_INTERVAL] [-q QUEUE_FILE]
+Usage: scripts/gsd-supervisor-daemon.sh -t TARGET [-r PROJECT_ROOT] [-n WATCHER_SESSION] [-m MODE] [-i WATCHER_INTERVAL] [-c CHECK_INTERVAL] [-q QUEUE_FILE] [-v] [-k VERIFY_CMD]
 
 Options:
   -t TARGET            worker tmux target (session, session:window, or %pane_id)
@@ -13,6 +13,8 @@ Options:
   -i WATCHER_INTERVAL  watcher poll interval in seconds (default: 2)
   -c CHECK_INTERVAL    daemon health-check interval in seconds (default: 5)
   -q QUEUE_FILE        queue file path (default: .planning/supervisor/queue.txt)
+  -v                   enable auto-verification enqueue after $gsd-execute-phase
+  -k VERIFY_CMD         verification command to enqueue (default: $gsd-verify-work)
   -h                   show help
 EOF
 }
@@ -24,8 +26,10 @@ mode="supervisor"
 watcher_interval="2"
 check_interval="5"
 queue_file=""
+auto_verify="false"
+verify_command=""
 
-while getopts ":t:r:n:m:i:c:q:h" opt; do
+while getopts ":t:r:n:m:i:c:q:vk:h" opt; do
   case "$opt" in
     t) target="$OPTARG" ;;
     r) project_root="$OPTARG" ;;
@@ -34,6 +38,8 @@ while getopts ":t:r:n:m:i:c:q:h" opt; do
     i) watcher_interval="$OPTARG" ;;
     c) check_interval="$OPTARG" ;;
     q) queue_file="$OPTARG" ;;
+    v) auto_verify="true" ;;
+    k) verify_command="$OPTARG" ;;
     h)
       usage
       exit 0
@@ -118,12 +124,12 @@ worker_exists() {
 watcher_health_reason() {
   local watcher_pane_id pane_dead pane_output
 
-  if ! tmux has-session -t "$watcher_session" 2>/dev/null; then
+  if ! tmux has-session -t "=$watcher_session" 2>/dev/null; then
     echo "missing-session"
     return 1
   fi
 
-  watcher_pane_id="$(tmux display-message -p -t "$watcher_session" "#{pane_id}" 2>/dev/null || true)"
+  watcher_pane_id="$(tmux display-message -p -t "=$watcher_session" "#{pane_id}" 2>/dev/null || true)"
   if [[ -z "$watcher_pane_id" ]]; then
     echo "missing-pane"
     return 1
@@ -156,6 +162,12 @@ restart_watcher() {
     -i "$watcher_interval"
     -q "$queue_file"
   )
+  if [[ "$auto_verify" == "true" ]]; then
+    cmd+=(-v)
+    if [[ -n "$verify_command" ]]; then
+      cmd+=(-k "$verify_command")
+    fi
+  fi
   (cd "$tool_root" && "${cmd[@]}")
 }
 

@@ -83,8 +83,8 @@ loop_cmd=(
 )
 loop_cmd_escaped="$(printf '%q ' "${loop_cmd[@]}")"
 
-if tmux has-session -t "$session" 2>/dev/null; then
-  tmux kill-session -t "$session"
+if tmux has-session -t "=$session" 2>/dev/null; then
+  tmux kill-session -t "=$session"
 fi
 
 tmux new-session \

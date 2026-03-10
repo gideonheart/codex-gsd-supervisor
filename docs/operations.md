@@ -17,6 +17,9 @@ All runtime artifacts live in the target project:
 ## Start (tmux only)
 
 ```bash
+# One-command autopilot (Developer+Driver + watchdogs):
+scripts/start-gsd-autopilot.sh -r /path/to/project
+
 # default: Codex UI pair (recommended for visible Codex sessions)
 scripts/codex-duet-link.sh -r /path/to/project start
 # alternate executor loop (no Codex TUI)

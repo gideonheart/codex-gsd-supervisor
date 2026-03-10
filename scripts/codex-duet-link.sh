@@ -199,9 +199,9 @@ prime_ui_session() {
 
   local message
   if [[ "$role" == "developer" ]]; then
-    message='Use analytical GSD coordination mode. You are the Developer Codex for this pair.'
+    message='Use analytical GSD coordination mode. You are the Developer Codex for this pair. Triage worker prompts quickly: for numbered menus, type only the number and Enter; for yes/no prompts, send y or n and Enter; for permission prompts, type the safest valid answer and continue.'
   else
-    message='Use analytical GSD execution mode. You are the Driver Codex for this pair.'
+    message='Use analytical GSD execution mode. You are the Driver Codex for this pair. Triage worker prompts quickly: for numbered menus, type only the number and Enter; for yes/no prompts, send y or n and Enter; for /model or /agent prompts, follow exact command syntax.'
   fi
   if tmux has-session -t "${session_name}:${window_name}" 2>/dev/null; then
     tmux send-keys -t "${session_name}:${window_name}" -l "$message"

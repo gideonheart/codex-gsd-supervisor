@@ -11,6 +11,8 @@ Options:
   -i SECONDS         polling interval (default: 2)
   --mode MODE        decision mode: hook|ai|supervisor (default: hook)
   --queue-file PATH  command queue file (default: .planning/supervisor/queue.txt)
+  --auto-verify      after a successful '$gsd-execute-phase N' dispatch, enqueue verification next
+  --verify-command   verification command to enqueue (default: $gsd-verify-work)
   --dry-run          print actions without sending keys
   --self-test        run prompt-decision regression tests and exit
   -h                 show help
@@ -23,6 +25,8 @@ interval="2"
 mode="hook"
 dry_run="false"
 self_test="false"
+auto_verify="false"
+verify_command='$gsd-verify-work'
 state_dir=""
 queue_file=""
 log_file=""
@@ -47,6 +51,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --queue-file)
       queue_file="${2:-}"
+      shift 2
+      ;;
+    --auto-verify)
+      auto_verify="true"
+      shift
+      ;;
+    --verify-command)
+      verify_command="${2:-}"
       shift 2
       ;;
     --dry-run)
@@ -89,6 +101,17 @@ log_file="$state_dir/autoresponder.log"
 if [[ "$mode" != "hook" && "$mode" != "ai" && "$mode" != "supervisor" ]]; then
   echo "Invalid --mode '$mode'. Use 'hook', 'ai', or 'supervisor'." >&2
   exit 2
+fi
+
+verify_command="$(printf '%s' "$verify_command" | tr -d '\r' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+if [[ "$auto_verify" == "true" ]]; then
+  if [[ -z "$verify_command" ]]; then
+    verify_command='$gsd-verify-work'
+  fi
+  if ! [[ "$verify_command" =~ ^\$gsd-[a-z0-9-]+([[:space:]].*)?$ ]]; then
+    echo "Invalid --verify-command '$verify_command'. Must be a single-line \$gsd-* command." >&2
+    exit 2
+  fi
 fi
 
 if [[ "$self_test" != "true" ]] && ! command -v tmux >/dev/null 2>&1; then
@@ -253,6 +276,38 @@ queue_pop() {
       print $0
     }
   ' "$queue_file" > "$tmp_file"
+  mv "$tmp_file" "$queue_file"
+}
+
+queue_contains_exact() {
+  local needle="$1"
+  [[ -f "$queue_file" ]] || return 1
+  awk -v target="$needle" '
+    {
+      line=$0
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line == "" || substr(line, 1, 1) == "#") {
+        next
+      }
+      if (line == target) {
+        found=1
+        exit
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$queue_file"
+}
+
+queue_prepend() {
+  local item="$1"
+  local tmp_file
+  tmp_file="$(mktemp)"
+  {
+    printf '%s\n' "$item"
+    if [[ -f "$queue_file" ]]; then
+      cat "$queue_file"
+    fi
+  } > "$tmp_file"
   mv "$tmp_file" "$queue_file"
 }
 
@@ -480,7 +535,7 @@ send_supervised_command() {
 
 dispatch_queue_if_ready() {
   local text="$1"
-  local now_epoch cmd composer_text
+  local now_epoch cmd composer_text dispatched_cmd
   now_epoch="$(date +%s)"
   composer_text="$(extract_composer_text "$text")"
 
@@ -497,10 +552,18 @@ dispatch_queue_if_ready() {
       return 0
     fi
 
+    dispatched_cmd="$pending_queue_command"
     queue_pop
     log_line "queue-dispatch-ack target=$target command='$pending_queue_command' attempts=$pending_submit_attempts"
     pending_queue_command=""
     pending_submit_attempts="0"
+
+    if [[ "$auto_verify" == "true" ]] && [[ "$dispatched_cmd" =~ ^\\$gsd-execute-phase[[:space:]]+[0-9]+([.][0-9]+)?([[:space:]]|$) ]]; then
+      if ! queue_contains_exact "$verify_command"; then
+        queue_prepend "$verify_command"
+        log_line "auto-verify-enqueued target=$target after_command='$dispatched_cmd' verify='$verify_command'"
+      fi
+    fi
   fi
 
   cmd="$(queue_peek || true)"
@@ -530,12 +593,37 @@ dispatch_queue_if_ready() {
   return 0
 }
 
+has_menu_prompt_context() {
+  local text="$1"
+  printf '%s\n' "$text" | grep -Eqi \
+    'question[[:space:]]+[0-9]+/[0-9]+|\bchoose\b|\bselect\b|\bpick\b|your choice|enter.*number|type.*number|press.*number|which option|which .*option|unanswered|submit with unanswered questions\?|continue\?|pass/skip|issue|next up|what do you want to do'
+}
+
+extract_first_menu_option() {
+  local text="$1"
+  printf '%s\n' "$text" \
+    | sed -nE 's/^[[:space:]]*(›[[:space:]]*)?([0-9]+)[.)—-][[:space:]]+.*$/\2/p' \
+    | head -n 1
+}
+
+extract_recommended_menu_option() {
+  local text="$1"
+  printf '%s\n' "$text" \
+    | sed -nE 's/^[[:space:]]*(›[[:space:]]*)?([0-9]+)[.)—-][[:space:]]+.*\(Recommended\).*/\2/p' \
+    | head -n 1
+}
+
 is_prompt_candidate() {
   local text="$1"
   local recent
   recent="$(printf '%s\n' "$text" | tail -n 18)"
+
+  if has_menu_prompt_context "$recent" && [[ -n "$(extract_first_menu_option "$recent")" ]]; then
+    return 0
+  fi
+
   printf '%s\n' "$recent" | grep -Eqi \
-    'press enter to continue|press enter to confirm|hit enter to continue|\[[Yy]/[Nn]\]|\(yes/no\)|\byes/no\b|\bchoose\b|\bselect\b|\bpick\b|your choice|enter.*number|which option|submit with unanswered questions\?|approval needed in|approval needed|do you want to approve|do you want me to|do you want to allow|allow this action|approve this action|requires approval|outside the sandbox|permission required|question[[:space:]]+[0-9]+/[0-9]+|unanswered|enter to submit answer|tab to add notes'
+    'press enter to continue|press enter to confirm|hit enter to continue|\[[Yy]/[Nn]\]|\(yes/no\)|\byes/no\b|\bchoose\b|\bselect\b|\bpick\b|your choice|enter.*number|which option|which .*option|submit with unanswered questions\?|approval needed in|approval needed|do you want to approve|do you want me to|do you want to allow|allow this action|approve this action|requires approval|outside the sandbox|permission required|question[[:space:]]+[0-9]+/[0-9]+|unanswered|enter to submit answer|tab to add notes|also available|next up|what do you want to do'
 }
 
 hook_decision() {
@@ -566,30 +654,23 @@ hook_decision() {
     return
   fi
 
-  if printf '%s\n' "$text" | grep -Eqi 'approval needed'; then
-    echo "ENTER"
-    return
-  fi
-
-  if printf '%s\n' "$text" | grep -Eqi 'do you want me to|do you want to allow|allow this action|approve this action|requires approval|outside the sandbox|permission required'; then
+  if printf '%s\n' "$text" | grep -Eqi 'approval needed|do you want to approve|do you want me to|do you want to allow|allow this action|approve this action|requires approval|outside the sandbox|permission required'; then
     echo "YES"
     return
   fi
 
-  selected_num="$(printf '%s\n' "$text" \
-    | sed -nE 's/^[[:space:]]*›[[:space:]]*([0-9]+)[.)].*/\1/p' \
-    | tail -n 1)"
-  if [[ -n "$selected_num" ]] && printf '%s\n' "$text" | grep -Eqi '\bchoose\b|\bselect\b|\bpick\b|your choice|enter.*number|which option|question[[:space:]]+[0-9]+/[0-9]+|unanswered|enter to submit answer'; then
-    echo "ENTER"
+  recommended_num="$(extract_recommended_menu_option "$text")"
+  if [[ -n "$recommended_num" ]]; then
+    echo "NUM:$recommended_num"
     return
   fi
 
-  recommended_num="$(printf '%s\n' "$text" \
-    | sed -nE 's/^[[:space:]]*([0-9]+)[.)].*\(Recommended\).*/\1/p' \
-    | tail -n 1)"
-  if [[ -n "$recommended_num" ]] && printf '%s\n' "$text" | grep -Eqi '\bchoose\b|\bselect\b|\bpick\b|your choice|enter.*number|which option|question[[:space:]]+[0-9]+/[0-9]+|unanswered|enter to submit answer'; then
-    echo "NUM:$recommended_num"
-    return
+  if has_menu_prompt_context "$text"; then
+    selected_num="$(extract_first_menu_option "$text")"
+    if [[ -n "$selected_num" ]]; then
+      echo "NUM:$selected_num"
+      return
+    fi
   fi
 
   echo ""
@@ -887,6 +968,7 @@ Hard rules:
 - Prefer WAIT unless there is a clear high-leverage next step.
 - Never ask for generic status updates.
 - Use a review loop before/after major changes: inspect diff, run tests/lints/checks, then fix issues.
+- If work looks "done" but verification is missing/outdated, prioritize $gsd-verify-work before starting new phases.
 - If verification says gaps_found, prioritize remediation over starting new phases.
 - Output exactly three lines in this exact format:
 ACTION: WAIT|SEND

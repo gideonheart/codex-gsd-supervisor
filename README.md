@@ -88,6 +88,9 @@ Any other value or missing file keeps automation active.
 # inside project root, create/find this repo first
 cd /home/forge/codex-gsd-supervisor
 
+# One-command autopilot (Developer+Driver + supervisor watchdogs + optional meta):
+scripts/start-gsd-autopilot.sh -r /path/to/project
+
 # 0) Start paired Codex sessions (Developer + Driver) for explicit decision/execution flow.
 #    - Developer: planning/orchestration role
 #    - Driver: execution role (runs $gsd commands and reports outcomes)
@@ -216,8 +219,11 @@ journalctl --user -u gsd-meta-supervisor.service -f
 - `scripts/supervisor-queue.sh` — queue utility (`append`, `show`, `set`, `clear`)
 - `scripts/start-gsd-supervisor-daemon.sh` — start main supervisor watcher + watchdog wrapper in tmux
 - `scripts/start-gsd-meta-supervisor.sh` — start meta loop in tmux
+- `scripts/start-gsd-autopilot.sh` — start Developer+Driver + daemons in one command
+- `scripts/gsd-autopilot-status.sh` — status snapshot for tmux + queue + logs
 - `scripts/gsd-supervisor-daemon.sh` — keep main watcher alive
 - `scripts/gsd-meta-supervisor-daemon.sh` — keep meta watcher alive
+- `scripts/start-gsd-meta-supervisor-daemon.sh` — start meta daemon wrapper in tmux
 - `scripts/codex-duet-link.sh` — pair a Driver/Developer Codex session for explicit two-agent coordination
 - `scripts/codex-duet-bridge.sh` — message relay between the paired sessions
 - `scripts/install-gsd-supervisor-service.sh` — install main supervisor user service

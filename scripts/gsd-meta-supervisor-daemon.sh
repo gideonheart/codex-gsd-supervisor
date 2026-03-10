@@ -114,12 +114,12 @@ worker_exists() {
 meta_health_reason() {
   local pane_id pane_dead pane_output
 
-  if ! tmux has-session -t "$session" 2>/dev/null; then
+  if ! tmux has-session -t "=$session" 2>/dev/null; then
     echo "missing-session"
     return 1
   fi
 
-  pane_id="$(tmux display-message -p -t "$session" "#{pane_id}" 2>/dev/null || true)"
+  pane_id="$(tmux display-message -p -t "=$session" "#{pane_id}" 2>/dev/null || true)"
   if [[ -z "$pane_id" ]]; then
     echo "missing-pane"
     return 1

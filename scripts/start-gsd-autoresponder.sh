@@ -13,6 +13,8 @@ Options:
   -i SECONDS       polling interval for watcher (default: 2)
   -q QUEUE_FILE    queue file path (default: .planning/supervisor/queue.txt)
   -e PHASE         bootstrap queue with: /clear then $gsd-execute-phase <PHASE>
+  -v               enable auto-verification enqueue after $gsd-execute-phase
+  -k VERIFY_CMD     verification command to enqueue (default: $gsd-verify-work)
   -h               show help
 EOF
 }
@@ -24,8 +26,10 @@ mode="supervisor"
 interval="2"
 queue_file=""
 execute_phase=""
+auto_verify="false"
+verify_command=""
 
-while getopts ":t:r:n:m:i:q:e:h" opt; do
+while getopts ":t:r:n:m:i:q:e:vk:h" opt; do
   case "$opt" in
     t) target="$OPTARG" ;;
     r) project_root="$OPTARG" ;;
@@ -34,6 +38,8 @@ while getopts ":t:r:n:m:i:q:e:h" opt; do
     i) interval="$OPTARG" ;;
     q) queue_file="$OPTARG" ;;
     e) execute_phase="$OPTARG" ;;
+    v) auto_verify="true" ;;
+    k) verify_command="$OPTARG" ;;
     h)
       usage
       exit 0
@@ -81,16 +87,33 @@ if [[ -n "$execute_phase" ]]; then
   "$tool_root/scripts/supervisor-queue.sh" -r "$project_root" --file "$queue_file" set "/clear" "\$gsd-execute-phase $execute_phase" >/dev/null
 fi
 
-if tmux has-session -t "$watcher_session" 2>/dev/null; then
-  tmux kill-session -t "$watcher_session"
+if tmux has-session -t "=$watcher_session" 2>/dev/null; then
+  tmux kill-session -t "=$watcher_session"
 fi
+
+watcher_cmd=(
+  scripts/tmux-gsd-autoresponder.sh
+  -t "$target"
+  -r "$project_root"
+  -i "$interval"
+  --mode "$mode"
+  --queue-file "$queue_file"
+)
+if [[ "$auto_verify" == "true" ]]; then
+  watcher_cmd+=(--auto-verify)
+  if [[ -z "$verify_command" ]]; then
+    verify_command='$gsd-verify-work'
+  fi
+  watcher_cmd+=(--verify-command "$verify_command")
+fi
+watcher_cmd_escaped="$(printf '%q ' "${watcher_cmd[@]}")"
 
 tmux new-session \
   -d \
   -s "$watcher_session" \
   -n watch \
   -c "$tool_root" \
-  "bash -lc 'cd \"$tool_root\" && scripts/tmux-gsd-autoresponder.sh -t \"$target\" -r \"$project_root\" -i \"$interval\" --mode \"$mode\" --queue-file \"$queue_file\"'"
+  "bash -lc 'cd \"$tool_root\" && $watcher_cmd_escaped'"
 
 tmux set-option -t "$watcher_session" remain-on-exit on >/dev/null
 
